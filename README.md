@@ -40,7 +40,7 @@ The general flow for using this repository is:
 
 The following conda environment was sufficient to run vg version comparison variant calling tests on the Phoenix cluster:
 ```
-conda create -n long-read-exp -c conda-forge -c bioconda snakemake=9.13.7 \
+conda create -n vc-compare -c conda-forge -c bioconda snakemake=9.13.7 \
     toil snakemake-executor-plugin-slurm snakemake-storage-plugin-http singularity \
     bidict matplotlib meryl 'minimap2>=2.28' seqkit
 ```
