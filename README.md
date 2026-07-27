@@ -5,6 +5,9 @@ To make this one easier to use, it has strictly less functionality and will only
 variant calling results between `vg giraffe` versions. If you only need read alignment comparisons,
 please check out the [`giraffe-parameter-search`](https://github.com/vgteam/giraffe-parameter-search) repo.
 
+Note that this repository assumes that all graphs & indexes will already exist.
+All of the machinery to index graphs or perform haplotype sampling etc. has been removed.
+
 **Set up this repository in `/private/groups`**. The pipeline will create very large files
 (e.g. read alignments) which will not fit within `/private/home` directories.
 
