@@ -1,7 +1,6 @@
 import functools
 import tempfile
 import os
-import numpy as np
 
 configfile: "lr-config.yaml"
 
