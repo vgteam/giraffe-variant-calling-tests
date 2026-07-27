@@ -1,86 +1,42 @@
-# Long Read Giraffe Experiments
+# Variant calling comparisons across `vg giraffe` versions
 
-This repository contains scripts for running experiments to evaluate the long-read mode for the `vg giraffe` pangenome sequencing read mapper. It knows how to run Giraffe, Winnowmap, and Minimap2, and how to analyze the results with `vg` and the included scripts.
+This repository is a fork of [`long-read-giraffe-experiments`](https://github.com/vgteam/long-read-giraffe-experiments).
+To make this one easier to use, it has strictly less functionality and will only let you compare 
+variant calling results between `vg giraffe` versions. If you only need read alignment comparisons,
+please check out the [`giraffe-parameter-search`](https://github.com/vgteam/giraffe-parameter-search) repo.
+
+**Set up this repository in `/private/groups`**. The pipeline will create very large files
+(e.g. read alignments) which will not fit within `/private/home` directories.
 
 ## Usage
 
 The general flow for using this repository is:
 
-1. Obtain some real long reads for your sequencing technologies.
+1. Get static `vg` binaries for the versions you want to compare. For each, navigate to inside your `vg` installation folder.
+    1. `git checkout` the branch (e.g. `git checkout mybranch`) or commit hash (e.g. `git checkout e2547e979d86a446e8151c5489850b6176a82c0c`)
+    2. Note the first six characters of the commit hash. If you don't know them, run `git rev-parse HEAD`.
+    3. Make a static binary with:
+        ````bash
+        make -j32 static
+        strip -d bin/vg
+        ```
+    4. Copy the binary file to inside this directory, where `COMMIT` is replaced by the six-character commit hash:
+        ```
+        # For example; replace with where this directory is
+        VC_TEST_REPO=/private/groups/patenlab/$USER/giraffe-variant-calling-tests
+        cp bin/vg $VC_TEST_REPO/vg_COMMIT
+        ```
+2. Update the `compare_variant_calling` experiment by replacing the commit hashes
+  (`hifi-COMMIT-noflags` & `r10-COMMIT-noflags`) with the six-character hashes of your binaries.
+  There should be one `hifi` and one `r10` version for each of the commits you're testing.
+  Make sure the `constrain` section has the `hifi` versions for `hifi` reads, and visa versa.
 
-2. Use `make_pbsim_reads.sh` to simulate reads with plausible base qualities, for a sample in a sample-and-reference graph. Use `simulate_illumina_reads.sh` to make Illumina reads and `simulate_element_reads.sh` to make Element reads. All scripts take their input configuration via environment variables. For example:
-```
-SAMPLE_FASTQ=/private/groups/patenlab/xhchang/reads/real/element/HG002/HG002.GAT-LI-C044.fq.gz VG="${HOME}/workspace/lr-giraffe/vg_v1.64.1" READ_DIR=/private/groups/patenlab/anovak/projects/hprc/lr-giraffe/reads GRAPH_DIR=/private/groups/patenlab/anovak/projects/hprc/lr-giraffe/graphs ./simulate_element_reads.sh
-```
-
-Note that the Illumina and Element read subsets won't be uniformly sampled from the full set.
-
-3. Lay out your input files in the expected format, including a GBZ graph and distance index, the reads, a linear reference FASTA, and Winnowmap indexes, and any Minimap2 indexes. See `Snakefile` for a description of the required layout for input data. If you need to get a linear reference from a graph, you can run something like:
-```
-vg paths --extract-fasta --sample CHM13 -x graphs/hprc-v2.0-mc-chm13-eval.gbz > references/chm13-pansn-newY.fa
-```
-
-4. Write a YAML configuration file defining one or more experiments in which different variables (sequencing technology, number of reads, read aligner used, etc.) are either held constant or varied. See `lr-config.yaml`, the default config file, for an example and documentation for all the experimental variables and their possible values. You can also use the config file to set `graphs_dir`, `reads_dir`, and `refs_dir` to directories where your graphs, reads, and Winnowmap2/Minimap indexed linear references are stored, if not running with access to the UCSC Genomics Institute `/private/groups` directory hierarchy. 
-
-5. Use Snakemake and the included `Snakefile` to do the work necessary to create the experimental results files you are interested in. For example if you write `lr-config.yaml` to define an experiment named `r10_accuracy_small` to compare Winnowmap and Giraffe on some R10 nanopore reads, you can get a plot of the rate of mapped reads across the two conditions in the experiment with:
-
+3. Run the Snakefile (invoke from right inside this folder)
     ```
-    snakemake --rerun-incomplete --use-singularity --singularity-args "-B /private" output/experiments/r10_accuracy_small/plots/mapping_rate.png
-    ```
-
-    Make sure that `output` is a directory with enough free space to store the mapped reads. Also, if any inputs or outputs are not in your home directory, make sure that the Singularity mountpoint (here `/private`) is an absolute path to a parent of all input and output files (including symlink destinations), but is not `/`. (If there is no common parent, you can use multiple `-B` flags in the string.) We use the `--rerun-incomplete` flag to make Snakemake rerun any commands that were interrupted on previous runs.
-
-    You can also run jobs on Slurm, where they will be automatically assigned to the correct partitions for UCSC's Phoenix cluster:
-
-    ```
-    snakemake --rerun-incomplete --use-singularity --singularity-args "-B /private" --executor slurm --latency-wait 120 -j128 output/experiments/r10_accuracy_small/plots/mapping_rate.png
-    ```
-
-    This will run on Slurm, waiting up to 120 seconds for files created on the worker nodes to become visible to the head node, and using up to 128 cores total.
-
-    You can also ask for multiple output files in a single run:
-
-    ```
-    snakemake --rerun-incomplete --use-singularity --singularity-args "-B /private" --executor slurm --latency-wait 120 -j128 \
-        output/experiments/r10_accuracy_small/plots/mapping_rate.png \
-        output/experiments/r10_accuracy_small/plots/correct.png \
-        output/plots/chm13/hprc-v1.1-mc-d9/minimap2-lr:hq/length_by_correctness-sim-r10-HG002.trimmed.1k.png
-    ```
-
-    And you can use the `--dry-run` flag to see all the rules that will be executed and the files that will be created. (You may need to include `--rerun-triggers mtime` to work around https://github.com/snakemake/snakemake/issues/3675 causing `Params have changed since last execution` reruns in dry run mode.)
-
-    To test the Snakemake:
-
-    ```
-    snakemake all_paper_figures --dry-run --debug-dag
-    ```
-
-    And to run all the plots for the paper into the configured `all_out_dir` (expected to be group sticky):
-
-    ```
-    (umask 0002; snakemake -j128 --rerun-incomplete --use-singularity --singularity-args "-B /private" --latency-wait 120 --executor slurm all_paper_figures)
+    (umask 002 && snakemake -j128 --rerun-incomplete --use-singularity --singularity-args "-B /private" --latency-wait 120 --executor slurm --keep-going ./output/experiments/compare_variant_calling/plots/{snp,indel,total}_errors.png)
     ```
 
 ## Dependencies
-
-To run all the rules, you will need to have installations of:
-
-* wget
-* curl
-* vg
-* minimap2 (at least 2.28)
-* pbmm2
-* winnowmap
-* samtools
-* Java
-* Picard (as `picard.jar` in the current directory)
-* bcftools
-* meryl
-* seqkit
-* Singularity, for running fastqsplitter, [Truvari](https://github.com/ACEnglish/truvari), [mafft](https://mafft.cbrc.jp/alignment/software/installation_without_root.html) which Truvari calls, vcfwave, vcfbub, sniffles, and GraphAligner
-* [toil](https://github.com/DataBiosphere/toil) for DeepVariant
-
-Versions of things are in `requirements.txt`
 
 The following conda environment was sufficient to run vg version comparison variant calling tests on the Phoenix cluster:
 ```
@@ -88,123 +44,3 @@ conda create -n long-read-exp -c conda-forge -c bioconda snakemake=9.13.7 \
     toil snakemake-executor-plugin-slurm snakemake-storage-plugin-http singularity \
     bidict matplotlib meryl 'minimap2>=2.28' seqkit
 ```
-Note that the vg installations had to be provided as binaries which had undergone `make static` and `strip -d`.
-
-## Available Experiment Outputs:
-
-In these file name templates, `{root}` is your base output directory, `{expname}` is the name of the experiment defined in the config file, and `{ext}` is the image format you want the plot in, such as `png`.
-
-* `{root}/experiments/{expname}/plots/correct.{ext}`: A bar chart of the fraction of eligible reads in each condition that are mapped correctly.
-* `{root}/experiments/{expname}/plots/wrong.{ext}`: A bar chart of the fraction of eligible reads in each condition that are mapped incorrectly.
-* `{root}/experiments/{expname}/plots/clipped_or_unmapped.{ext}`: A bar chart of the number of bases left softclipped, hardclipped, or unmapped by each condition.
-* `{root}/experiments/{expname}/plots/mapping_rate.{ext}`: A bar chart of the fraction of reads in each condition that are mapped.
-* `{root}/experiments/{expname}/plots/mapping_speed.{ext}`: A bar chart of the speed of each Giraffe condition, in reads per second per thread.
-* `{root}/experiments/{expname}/plots/chain_coverage.{ext}`: A bar chart of the best-chain coverage fraction of each Giraffe condition.
-* `{root}/experiments/{expname}/plots/pr.{ext}`: A precision-recall plot for mapping accuracy showing each condition.
-* `{root}/experiments/{expname}/plots/qq.{ext}`: A "QQ" plot with error bars, showing the calibration of mapping quality for detecting incorrectly-mapped reads.
-* `{root}/experiments/{expname}/plots/identity_line.{ext}`: A cumulative histogram of read identity masquerading as a line plot.
-
-## Useful Per-Condition Outputs
-
-In these file name templates, `{root}` is your base output directory, `{ext}` is the image format you want the plot in, such as `png`, and the other placeholders are experimental variables that define the condition being run.
-
-* `{root}/plots/{reference}/{refgraph}/{mapper}/best_chain_coverage-{realness}-{tech}-{sample}{trimmedness}.{subset}.{ext}`: A histogram of the amount of the read covered by the best chain, for Giraffe conditions.
-* `{root}/plots/{reference}/{refgraph}/{mapper}/chain_anchor_length-{realness}-{tech}-{sample}{trimmedness}.{subset}.{ext}`: A histogram of the number of bases in seed anchors in the best chain.
-* `{root}/plots/{reference}/{refgraph}/{mapper}/chain_anchors-{realness}-{tech}-{sample}{trimmedness}.{subset}.{ext}`: A histogram of the number of seed anchors in the best chain.
-* `{root}/plots/{reference}/{refgraph}/{mapper}/time_used-{realness}-{tech}-{sample}{trimmedness}.{subset}.{ext}`: A histogram of the CPU time used to map each read, for Giraffe conditions.
-* `{root}/plots/{reference}/{refgraph}/{mapper}/average_stage_time-{realness}-{tech}-{sample}{trimmedness}.{subset}.{ext}`: A chart of the average CPU time used per mapping stage, for Giraffe conditions.
-* `{root}/plots/{reference}/{refgraph}/{mapper}/average_aligner_time-{realness}-{tech}-{sample}{trimmedness}.{subset}.{ext}`: A chart of the average wall clock time used per dynamic programming method, for Giraffe conditions.
-* `{root}/plots/{reference}/{refgraph}/{mapper}/average_aligner_bases-{realness}-{tech}-{sample}{trimmedness}.{subset}.{ext}`: A chart of the average bases aligned per dynamic programming method, for Giraffe conditions.
-* `{root}/plots/{reference}/{refgraph}/{mapper}/average_aligner_invocations-{realness}-{tech}-{sample}{trimmedness}.{subset}.{ext}`: A chart of the average invocation count per dynamic programming method, for Giraffe conditions.
-* `{root}/plots/{reference}/{refgraph}/{mapper}/average_aligner_fraction-{realness}-{tech}-{sample}{trimmedness}.{subset}.{ext}`: A chart of the average read fraction aligned per dynamic programming method, for Giraffe conditions.
-* `{root}/plots/{reference}/{refgraph}/{mapper}/average_aligner_speed-{realness}-{tech}-{sample}{trimmedness}.{subset}.{ext}`: A chart of the average bases aligned per second per dynamic programming method, for Giraffe conditions.
-* `{root}/plots/{reference}/{refgraph}/{mapper}/average_aligner_probsize-{realness}-{tech}-{sample}{trimmedness}.{subset}.{ext}`: A chart of the average problem size averaged again over reads, per dynamic programming method, for Giraffe conditions.
-* `{root}/plots/{reference}/{refgraph}/{mapper}/length_by_mapping-{realness}-{tech}-{sample}{trimmedness}.{subset}.{ext}`: A histogram of read length, broken out by whether the read mapped or not.
-* `{root}/plots/{reference}/{refgraph}/{mapper}/length_by_correctness-{realness}-{tech}-{sample}{trimmedness}.{subset}.{ext}`: A histogram of read length, broken out by whether the read was correct, incorrect, or without a truth position.
-* `{root}/stats/{reference}/{refgraph}/{mapper}/{realness}/{tech}/{sample}{trimmedness}.{subset}.facts.txt`: A Giraffe Facts report about where candidates are filtered, for Giraffe conditions.
-
-# Parameter Search
-
-This repo also includes machinery for doing parameter search experiments, to find the best combinations of parameters for `vg giraffe`, in order to generate Giraffe parameter presets.
-
-To use it, first update `parameter_search_config.tsv` to describe the names of the parameters you want to vary, their Python type (`int`, `float`, or `bool`), their min, max, and current default values, and the sampling strategy to distribute sampled values (`uniform` or `log`). (The default value is used for previously-sampled conditions from before you added the parameter to the file.) Note that the workflow is very picky about trailing newlines: there *must not* be any blank lines in the file.
-
-Then, run `parameter_search.py`, with the `--count` option set to the number of points to sample in multi-dimensional parameter space. This populates `hash_to_parameters.tsv` with several sample point hash values and their corresponding parameter sets. If there are already conditions in that file, they will be updated with the default values for any new parameters added to the search. To drop old conditions from your search, delete `hash_to_parameters.tsv`.
-
-Then use Snakemake to request any of the parameter search plots, such as `{root}/parameter_search/plots/chm13/hprc-v1.1-mc-sampled4o/giraffe-k29.w11.W-sr-default/HG002.100000/illumina.correct_speed_vs_hit-cap.png`. This will use the current default `vg` binary, with the `sr` preset, on 100000 Illumina reads, against a haplotype-sampled version of the HPRC v1.1 graph, and make a plot of simulated read correctness and real read mapping speed as a function of the `hit-cap` parameter (assuming it's defined as one of the parameters to vary). There are other Snakemake rules available for files in `parameter_search` that can make parametric plots of pairs of real or simulated alignment statistics, or plot those statistics against parameter values.
-
-You can ask for:
-* `{root}/parameter_search/plots/{reference}/{refgraph}/giraffe-{minparams}-{preset}-{version}/{sample}.{subset}/{tech}.correct_speed_vs_{parameter}.png` (which plots simulated read correctness and real read speed on the same plot, against a parameter)
-   * Example: `output/parameter_search/plots/chm13/hprc-v1.1-mc-sampled4o/giraffe-k29.w11.W-sr-default/HG002.100000/illumina.correct_speed_vs_hit-cap.png`
-* `{root}/parameter_search/plots/{reference}/{refgraph}/giraffe-{minparams}-{preset}-{version}/{sample}.{subset}/{tech}.{realness}.{stat}_vs_{parameter}.png` (which plots a statistic against a parameter). Statistics include:
-   * `correct`
-   * `wrong`
-   * `clipped_or_unmapped`
-   * `mapping_speed`
-   * `match_bp`
-   * Most of the things you can plot bar chates for in [Available Experiment Outputs](#available-experiment-outputs) above.
-* `{root}/parameter_search/plots/{reference}/{refgraph}/giraffe-{minparams}-{preset}-{version}/{sample}.{subset}/{tech}.parametric.{realness_y}.{stat_y}_vs_{realness_x}.{stat_x}.png` (which plots two statistics against each other as a parametric plot, for optimizing tradeoffs)
-  * Example: `output/parameter_search/plots/chm13/hprc-v2.1-mc-eval-sampled16o/giraffe-k31.w50.W.path-hifi-default/HG002.100k/hifi.parametric.sim.wrong_vs_real.match_bp.png`
-
-Note that the `{flags}` field is not present; `noflags` is always used, plus the flags from the parameter set being tested. If you need to pass something like the flag to enable recombination-awareness, you need to set it in your parameter search as a parameter to be searched, with just one possible value in its range.
-
-To actually figure out which points on the plot are which, you can go into the backing stats files, and even sort them by statistiv and get a list of the best parameter sets for that statistic.
-
-# Multi-User Operation
-
-To collaborate with multiple people on a single set of intermediate files, first make a directory owned by a group they have in common. Set it to be group-writable and set the group sticky bit:
-```
-mkdir /private/groups/patenlab/project-lrg
-chgrp patenlab /private/groups/patenlab/project-lrg
-chmod g+w /private/groups/patenlab/project-lrg
-chmod g+s /private/groups/patenlab/project-lrg
-```
-
-Then run the Snakemake in a subshell with a group-writable umask set, and ask for a file under that directory:
-```
-(umask 0002; snakemake -j128 --rerun-incomplete --use-singularity --singularity-args "-B /private" --latency-wait 120 --executor slurm /private/groups/patenlab/project-lrg/output/plots/chm13/hprc-v1.1-mc-d9/giraffe-k31.w50.W-hifi-default-noflags/time_used-real-hifi-HG002.1k.png)
-```
-
-The file and all intermediates will end up owned and writable by the correct group.
-
-# Collecting Paper Data
-
-First, make sure you have run the `all_paper_figures` rule:
-
-```
-(umask 002 && snakemake -j128 --rerun-incomplete --keep-incomplete --use-singularity --singularity-args "-B /private" --latency-wait 120 --executor slurm --keep-going all_paper_figures)
-```
-
-Then:
-
-1. Copy from `/private/groups/patenlab/project-lrg/experiments/{hifi,r10y2025,illumina}_real_full/results/mapping_stats_real.tsv` into spreadsheet "Runtime/memory/softclips" tab and reorder.
-    - Record vg version and date
-    ```
-    cat /private/groups/patenlab/project-lrg/experiments/{hifi,r10y2025,illumina,element}_real_full/results/mapping_stats_real.tsv | sed 's/condition/mapper,graph/g' | tr ',' '\t' | awk -v OFS='\t' '{ t = $1; $1 = $2; $2 = t; if ($2 ~ /^(minimap2|pbmm2|winnowmap|bwa)/ || $1 == "primary") { $1 = "CHM13" } ; print; }'
-    ```
-
-2. Copy from `/private/groups/patenlab/project-lrg/experiments/{hifi,r10y2025}_sim_1m/results/mapping_stats_sim.tsv` into spreadsheet "Simulated accuracy" tab and reorder.
-    - Record vg version and date
-    ```
-    cat /private/groups/patenlab/project-lrg/experiments/{hifi,r10y2025,illumina,element}_sim_1m/results/mapping_stats_sim.tsv | sed 's/condition/mapper,graph/g' | tr ',' '\t' | awk -v OFS='\t' '{ t = $1; $1 = $2; $2 = t; if ($2 ~ /^(minimap2|pbmm2|winnowmap|bwa)/ || $1 == "primary") { $1 = "CHM13" } ; print; }'
-    ```
-
-3. Copy from `/private/groups/patenlab/project-lrg/experiments/dv_calling/results/dv_{indel,snp}_summary.tsv` into spreadsheet "DeepVariant calling" tab and reorder.
-    - Highlight best conditions
-    - Record vg version and date
-    ```
-    cat /private/groups/patenlab/project-lrg/experiments/dv_calling/results/dv_{indel,snp}_summary.tsv | sed 's/condition/tech,mapper,graph,model/g' | tr ',' '\t' | awk -v OFS='\t' '{ t = $2; $2 = $3; $3 = t; if ($3 ~ /^(minimap2|pbmm2|winnowmap|bwa)/ || $2 == "primary") { $2 = "CHM13" } ; print; }'
-    ```
-
-4. Copy from `/private/groups/patenlab/project-lrg/experiments/sv_calling/results/sv_summary.tsv` into spreadsheet "SV calling" tab and reorder.
-    - Record vg version and date
-    ```
-    cat /private/groups/patenlab/project-lrg/experiments/sv_calling/results/sv_summary.tsv | sed 's/condition/graph_ref,benchmark_ref,calller,tech,mapper,graph/g' | tr ',' '\t' | awk -v OFS='\t' '{ graph_ref = $1; benchmark_ref = $2; caller = $3; tech = $4; mapper = $5; graph = $6; if (mapper ~ /^(minimap2|pbmm2|winnowmap|bwa)/ || graph == "primary") { graph = graph_ref } ; $1 = tech; $2 = graph; $3 = caller; $4 = mapper; $5 = graph_ref ; $6 = benchmark_ref; print; }' |  cut -f1-4,6- | sed '1s/^/#/' | sort -k1 | sed '1s/^#//'
-    ```
-
-5. Run `make_paper_figures.sh` and collect the figures.
-
-6. Run `make_paper_tables.sh` and collect the tables to include in a latex document.
-
-
-
