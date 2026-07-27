@@ -2,9 +2,6 @@
 # This is a simplified file based on the above
 
 real_slurm_extra: "--exclude=phoenix-[00-10,22-24]"
-exclusive_timing: true
-min_exclusive_reads: 1000000
-# Note that reserving a full node is the only way we have to ensure a job is not split across NUMA nodes
 
 experiments:
 
@@ -14,7 +11,7 @@ experiments:
       reference: chm13
       sample: HG002
       realness: real
-      refgraph: hprc-v2.1-mc-eval-sampled16os
+      refgraph: hprc-v2.1-mc-eval-sampled16o
       # SV specific parameters with generic names
       caller: vgcall
       truthset: giab6
