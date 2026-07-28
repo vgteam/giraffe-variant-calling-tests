@@ -154,17 +154,11 @@ TRUTH_DIR = config.get("truth_dir", None) or "/private/groups/patenlab/anovak/pr
 # Models should be in directories by tech and then by date in YYYY-MM-DD format.
 MODELS_DIR = config.get("models_dir", None) or "/private/groups/patenlab/anovak/projects/hprc/lr-giraffe/models/"
 
-# When we "snakemake all_paper_figures", where should the results go?
-ALL_OUT_DIR = config.get("all_out_dir", None) or "/private/groups/patenlab/project-lrg"
-
 # What stages does the Giraffe mapper report times for?
 STAGES = ["minimizer", "seed", "tree", "fragment", "chain", "align", "winner"]
 
 # What stages does the Giraffe mapper report times for on the non-chainign codepath?
 NON_CHAINING_STAGES = ["minimizer", "seed", "cluster", "extend", "align", "pairing", "winner"]
-
-# What aligner and read part combinations does Giraffe report statistics for?
-ALIGNER_PARTS = ["wfa_tail", "dozeu_tail", "wfa_middle", "bga_middle"]
 
 # To allow for splitting and variable numbers of output files, we need to know
 # the available subset values to generate rules.
@@ -192,13 +186,6 @@ MAPPER_THREADS = 32
 # We may not want to populate the MiniWDL task cache because it makes us take
 # more shared disk space.
 FILL_WDL_CACHE = "true" if config.get("fill_wdl_cache", True) else "false"
-
-# What version of vg should be used to make fragment-aware haplotype indexes?
-VG_FRAGMENT_HAPLOTYPE_INDEXING_VERSION="v1.64.1"
-# What version of vg should be used to haplotype-sample graphs?
-VG_HAPLOTYPE_SAMPLING_VERSION="v1.64.1"
-# What version of vg should be used to haplotype-sample graphs when we want to keep just one reference?
-VG_HAPLOTYPE_SAMPLING_ONEREF_VERSION="v1.64.1"
 
 wildcard_constraints:
     expname="[^/]+",
@@ -290,7 +277,6 @@ def choose_partition(minutes):
             return name
     raise ValueError(f"No Slurm partition accepts jobs that run for {minutes} minutes")
 
-import snakemake
 def remote_or_local(url):
     """
     Wrap a URL as a Snakemake "remote file", but pass a local path through.
@@ -1220,41 +1206,6 @@ rule giraffe_real_reads:
         zipcodes_flag=f"-z {input.zipfile}" if "zipfile" in dict(input).keys() else ""
 
         shell(vg_binary + " giraffe -t{threads} --parameter-preset {wildcards.preset} --progress -Z {input.gbz} -d {input.dist} -m {input.minfile} -f {input.fastq_gz} " + zipcodes_flag + " " + flags + " " + pairing_flag + " >{output.gam} 2>{log}")
-
-rule inject_bam:
-    input:
-        gbz=gbz,
-        bam="{root}/aligned/{reference}/{mapper}/{realness}/{tech}/{sample}{trimmedness}.{subset}.bam"
-    output:
-        gam="{root}/aligned/{reference}/{refgraph}/{mapper}/{realness}/{tech}/{sample}{trimmedness}.{subset}.gam"
-    wildcard_constraints:
-        mapper="(minimap2.+|winnowmap|bwa(-pe)?|pbmm2)"
-    threads: 64
-    resources:
-        mem_mb=300000,
-        runtime=600,
-        slurm_partition=choose_partition(600)
-    shell:
-        "vg inject --threads {threads} --add-identity -x {input.gbz} {input.bam} - >{output.gam} "
-
-# Change the automatic /1 to _1, but only for simulated reads so that downstream real read rules cane take out the \1
-rule inject_bam_add_pairing:
-    input:
-        gbz=gbz,
-        bam="{root}/aligned/{reference}/{mapper}/{realness}/{tech}/{sample}{trimmedness}.{subset}.bam"
-    output:
-        gam="{root}/aligned/{reference}/{refgraph}/{mapper}/{realness}/{tech}/{sample}{trimmedness}.{subset}.gam"
-    wildcard_constraints:
-        mapper="(minimap2.+|bwa(-pe)?)",
-        realness="sim"
-    threads: 64
-    resources:
-        mem_mb=300000,
-        runtime=600,
-        slurm_partition=choose_partition(600)
-    shell:
-        "vg inject --threads {threads} --add-identity -x {input.gbz} {input.bam} | vg view -aj - | sed 's/\/1/_1/g' | sed 's/\/2/_2/g' | vg view -aGJ - >{output.gam} "
-ruleorder: inject_bam_add_pairing > inject_bam
 
 rule surject_gam:
     input:
