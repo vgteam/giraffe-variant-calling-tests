@@ -39,6 +39,9 @@ The general flow for using this repository is:
     (umask 002 && snakemake -j128 --rerun-incomplete --use-singularity --singularity-args "-B /private" --latency-wait 120 --executor slurm --keep-going ./output/experiments/compare_variant_calling/plots/{snp,indel,total}_errors.png)
     ```
 
+Please note that the `vg surject` invocation will be done by whichever `vg` is on your `PATH`,
+not by the `vg` which did the read alignment. The specialized versions are used only for `giraffe`.
+
 ## Dependencies
 
 The following conda environment was sufficient to run vg version comparison variant calling tests on the Phoenix cluster:
